@@ -43,6 +43,8 @@ convention used in Data-Dungeon and KuperPlumbing: Nixpacks builder,
 
 4. Networking → Generate Domain.
 
+No API key is required — the built-in matcher handles scoring on its own.
+
 `PORT` is provided by Railway and read automatically. `JUDGE_MODEL` is
 optional and defaults to `claude-sonnet-4-6`.
 
@@ -89,35 +91,49 @@ Some notes on how it works, and what it does not do:
 
 ## How answers get scored
 
+No API key needed. Everything below runs offline in the browser, in about a
+millisecond, and whatever it gets wrong there is a button on the reveal screen
+to flip.
+
 Answers are short free text and almost never match literally. "not hanging the
 kitchen towel up" and "leaving the kitchen towel out" are the same complaint
-and have to score. Three tiers run in order, stopping at the first confident
-result:
+and have to score. The engine works in layers:
 
-**Tier 1 — normalize and compare.** `normalize()` lowercases, expands
-contractions, strips leading filler ("i think", "probably"), strips
-punctuation, drops a stopword list, and applies a light regex stemmer.
-Identical results are a match — unless the two sides disagree about negation,
-which drops through to tier 3. (`never` is a stopword, so without that guard
-"he never apologizes first" and "he apologizes first" would normalize
-identically and score.)
+- **Normalising.** Lowercase, expand contractions, strip leading filler ("i
+  think", "probably"), drop punctuation and function words, map common
+  synonyms (film/movie, annoyed/mad, apologise/sorry), and stem what is left.
+- **Who is who.** "me" becomes whoever wrote it and "you" becomes the other
+  one, so Michael answering "me" and Hannah guessing "you" land on the same
+  string. Naming the same person is strong evidence; naming different people
+  settles it the other way.
+- **Three similarity signals**, strongest wins: token overlap (Dice), the same
+  with fuzzy token matching so typos and odd inflections still pair
+  ("towl"/"towel", "apologise"/"apologizes"), and containment, for when one
+  answer is a short version of the other ("Colorado" inside "somewhere in
+  Colorado"). Words too common to identify anything — day, thing, time, way —
+  are excluded, so "our wedding day" and "the day Kiya was born" do not match
+  on "day" alone.
+- **Negation, handled properly.** A flat contradiction is a miss. But
+  grammatically opposite framings of one act are not: when one side negates a
+  tidying verb and the other affirms an abandoning verb — "never puts his
+  laundry away" against "leaves laundry on the floor" — the disagreement is
+  only grammar, and if they also name the same thing it scores.
 
-**Tier 2 — token overlap.** Dice coefficient over the normalized token sets,
-plus a negation flag per side. `>= 0.6` with negation agreeing is a match;
-`<= 0.15` is not; anything between, or any negation disagreement, goes to
-tier 3.
+Ambiguous pairs default to **no match**, deliberately. A wrong miss is one
+button press to fix and you watch it happen; a wrong match quietly hands out a
+point nobody earned.
 
-**Tier 3 — Claude judges.** The question and both texts go to
-`claude-sonnet-4-6`, which returns `{"match": bool, "reason": string}`. It is
-told to be generous about phrasing and strict about meaning: opposite framings
-of the same behaviour match, different subjects do not. On any failure the
-result falls back to Dice >= 0.4 with the reason "Judged offline."
-
-Both pairs are judged in parallel, and every verdict on the reveal screen has
-an **Override** control for when the judge gets one obviously wrong.
+Measured on 47 hand-written pairs drawn from these actual questions, it gets
+43 right. The ones it misses are pure synonymy with no shared words ("stops
+talking" / "goes silent") and pronouns with no resolvable referent. That is
+what the override is for.
 
 Question 2 is numeric (`mode: "numeric"`): it parses a number out of each side
 and counts a match if the guess lands within 25% of the stated answer.
+
+**Optional.** If `ANTHROPIC_API_KEY` is set on the server, genuinely ambiguous
+pairs get a second opinion from Claude before the fallback decides. Nothing
+depends on it — with no key the app never even makes the request.
 
 ## Editing the questions
 

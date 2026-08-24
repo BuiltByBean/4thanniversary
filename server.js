@@ -128,7 +128,9 @@ app.post("/api/room/:code/submit", async (req, res) => {
   // Answer the phone immediately; judging happens behind the poll.
   res.status(200).json(viewForSeat(ctx.room, ctx.seat));
   if (result.bothIn) {
-    judgeRoom(ctx.room, sendToJudge).catch(() => {});
+    // No key configured: skip the judge entirely rather than pay for a
+    // request that is going to fail. The built-in matcher decides.
+    judgeRoom(ctx.room, process.env.ANTHROPIC_API_KEY ? sendToJudge : null).catch(() => {});
   }
   return undefined;
 });

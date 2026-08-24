@@ -377,6 +377,7 @@ export default function GuessMyAnswer() {
   const [confirmReset, setConfirmReset] = useState(false);
 
   const judgeToken = useRef(0);
+  const [judgeReady, setJudgeReady] = useState(false);
   const answerRef = useRef(null);
   const guessRef = useRef(null);
 
@@ -574,7 +575,7 @@ export default function GuessMyAnswer() {
 
     let verdicts;
     try {
-      verdicts = await evaluateBoth(q, names, entries, sendToJudgeFromBrowser);
+      verdicts = await evaluateBoth(q, names, entries, judgeReady ? sendToJudgeFromBrowser : null);
     } catch (err) {
       const offline = { match: false, reason: "Judged offline.", tier: "offline", dice: 0, flipped: false };
       verdicts = { vA: { ...offline }, vB: { ...offline } };
@@ -695,6 +696,21 @@ export default function GuessMyAnswer() {
     else if (room.phase === "judging" || room.phase === "reveal") active = "reveal";
     else if (room.phase === "final") active = "final";
   }
+
+  // One probe at startup. No key configured means the built-in matcher
+  // decides everything, instantly and offline.
+  useEffect(() => {
+    let alive = true;
+    fetch("/healthz")
+      .then((r) => (r.ok ? r.json() : null))
+      .then((d) => {
+        if (alive && d && d.judge === true) setJudgeReady(true);
+      })
+      .catch(() => {});
+    return () => {
+      alive = false;
+    };
+  }, []);
 
   /* ---------------- timers & keyboard ---------------- */
 
@@ -1150,10 +1166,14 @@ export default function GuessMyAnswer() {
               {v.flipped ? "Overridden by hand. " : ""}
               {v.reason}
             </p>
-            <div className="mt-4">
-              <TinyButton onClick={() => flip(which)} active={v.flipped}>
-                {v.flipped ? "Undo override" : "Override"}
-              </TinyButton>
+            <div className="mt-5">
+              <Button tone="ghost" onClick={() => flip(which)}>
+                {v.flipped
+                  ? "Undo — put it back"
+                  : matched
+                    ? "Actually, not a match"
+                    : "Actually, call it a match"}
+              </Button>
             </div>
           </div>
         ) : (
