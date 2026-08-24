@@ -1,0 +1,24 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <!-- viewport-fit=cover so env(safe-area-inset-*) reports real values on
+         notched phones; no user scaling because a mis-pinch mid-game is worse
+         than the accessibility trade here. Matches the Data-Dungeon meta. -->
+    <meta
+      name="viewport"
+      content="width=device-width, initial-scale=1.0, maximum-scale=1.0, minimum-scale=1.0, user-scalable=no, viewport-fit=cover"
+    />
+    <meta name="theme-color" content="#FCF7EF" />
+    <meta name="description" content="A two-player anniversary guessing game." />
+    <meta name="apple-mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-status-bar-style" content="default" />
+    <meta name="apple-mobile-web-app-title" content="Guess My Answer" />
+    <meta name="format-detection" content="telephone=no" />
+    <title>Guess My Answer</title>
+  </head>
+  <body>
+    <div id="root"></div>
+    <script type="module" src="/src/main.jsx"></script>
+  </body>
+</html>

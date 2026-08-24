@@ -1,0 +1,17 @@
+@import "tailwindcss";
+
+/* The component owns its own look. This file only makes sure the page
+   underneath it is the same warm paper colour edge to edge, including the
+   area behind a notch and behind an overscroll bounce. */
+html,
+body,
+#root {
+  margin: 0;
+  padding: 0;
+  background-color: #fcf7ef;
+}
+
+body {
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
