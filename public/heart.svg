@@ -1,0 +1,17 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" width="512" height="512" role="img" aria-label="H and M inside a heart">
+    <rect width="512" height="512" fill="#FCF7EF"/>
+    <rect x="26.6" y="26.6" width="458.8" height="458.8" fill="none" stroke="#D9CBB8" stroke-width="3.8"/>
+    <rect x="41.5" y="41.5" width="429" height="429" fill="none" stroke="#D9CBB8" stroke-width="2.8"/>
+    <circle cx="169.0" cy="179.2" r="87.0" fill="#A8453B"/>
+    <circle cx="343.0" cy="179.2" r="87.0" fill="#A8453B"/>
+    <polygon points="81.9,179.2 430.1,179.2 256.0,419.8" fill="#A8453B"/>
+    <line x1="155.1" y1="140.8" x2="155.1" y2="222.7" stroke="#FCF7EF" stroke-width="15.4" stroke-linecap="butt"/>
+    <line x1="208.4" y1="140.8" x2="208.4" y2="222.7" stroke="#FCF7EF" stroke-width="15.4" stroke-linecap="butt"/>
+    <line x1="155.1" y1="181.8" x2="208.4" y2="181.8" stroke="#FCF7EF" stroke-width="15.4" stroke-linecap="butt"/>
+    <line x1="299.5" y1="222.7" x2="299.5" y2="140.8" stroke="#FCF7EF" stroke-width="15.4" stroke-linecap="butt"/>
+    <line x1="361.0" y1="222.7" x2="361.0" y2="140.8" stroke="#FCF7EF" stroke-width="15.4" stroke-linecap="butt"/>
+    <line x1="299.5" y1="140.8" x2="330.2" y2="187.9" stroke="#FCF7EF" stroke-width="15.4" stroke-linecap="butt"/>
+    <line x1="330.2" y1="187.9" x2="361.0" y2="140.8" stroke="#FCF7EF" stroke-width="15.4" stroke-linecap="butt"/>
+    <line x1="239.6" y1="179.2" x2="272.4" y2="179.2" stroke="#FCF7EF" stroke-width="9.7" stroke-linecap="butt"/>
+    <line x1="256.0" y1="162.8" x2="256.0" y2="195.6" stroke="#FCF7EF" stroke-width="9.7" stroke-linecap="butt"/>
+  </svg>

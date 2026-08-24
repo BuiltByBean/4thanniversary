@@ -12,7 +12,8 @@
     "build": "vite build",
     "preview": "vite preview",
     "start": "node server.js",
-    "artifact": "node scripts/build-artifact.mjs"
+    "artifact": "node scripts/build-artifact.mjs",
+    "icons": "node scripts/make-icons.mjs"
   },
   "dependencies": {
     "@tailwindcss/vite": "^4.3.3",
