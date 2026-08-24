@@ -1,6 +1,7 @@
 # Guess My Answer
 
-A two-player guessing game for one phone passed back and forth.
+A two-player guessing game. Pass one phone back and forth, or play it on two
+phones at once with the scores kept in sync.
 The fourth anniversary edition — Michael & Hannah Bean, August 24, 2026.
 
 Each question, both players write two things: their own honest answer, and
@@ -49,6 +50,43 @@ Check `/healthz` after deploy — it returns `{"ok":true,"judge":true}` once the
 key is set. `"judge":false` means the key is missing and the game will score
 with the offline fallback instead.
 
+## Two phones
+
+You can play either way. The title screen offers both.
+
+**One phone** is the original ritual: write, hand it over, the handoff screen
+hides everything, both boxes are masked as you type.
+
+**Two phones** puts each of you on your own device. One person taps *Play on
+two phones* and reads out the four-character room code; the other types it
+under *Joining a room?* and the game starts by itself. From then on both
+screens move together — same question, same round card, same scoreboard. When
+you lock yours in you get a *Waiting for…* screen, and your partner sees a
+quiet "has locked in" line on their question. Nothing is revealed until you
+have both written something down. Overrides and Next sync to both phones.
+Because it is your own phone, the answer boxes are not masked.
+
+Some notes on how it works, and what it does not do:
+
+- **The server is the referee.** It holds the room, gates the reveal, and runs
+  the judge exactly once so both phones see an identical verdict rather than
+  scoring separately and disagreeing.
+- **A player never receives their partner's answer before committing their
+  own.** Everything a client sees is redacted per seat by `viewForSeat()` in
+  `rooms.js`; while a question is open, the only thing you learn about the
+  other seat is whether they have locked in. Not their text, not its length.
+- **Short polling, roughly every 1.2s** — not WebSockets or SSE. A phone that
+  locks its screen drops a live connection and needs reconnect logic; a poll
+  just resumes on the next tick. For a game where you are waiting on someone to
+  type a sentence, the latency is invisible.
+- **Refresh is safe.** Your seat is held by a token, so reloading rejoins the
+  same seat rather than taking a new one.
+- **Rooms live in memory** with a 12-hour idle expiry. A Railway redeploy or
+  restart clears them — fine for one evening, but you would start over.
+- **Questions are edited by the host, in the lobby.** Once the first question
+  is answered the set is locked so indices cannot shift underneath a game in
+  progress.
+
 ## How answers get scored
 
 Answers are short free text and almost never match literally. "not hanging the
@@ -85,8 +123,8 @@ and counts a match if the guess lands within 25% of the stated answer.
 
 Two ways, and they do not fight each other:
 
-- **In the app.** "Edit the questions" on the title, rules, or final screen
-  opens a full editor — question text, round names and subtitles, the three
+- **In the app.** "Edit the questions" on the title, rules, lobby, or final
+  screen opens a full editor — question text, round names and subtitles, the three
   rules, the closing question, reordering, moving questions between rounds,
   the numeric flag, adding and deleting. "Reset to the printed card" restores
   the originals.
@@ -113,8 +151,20 @@ screen:
 
 ## The single-file version
 
-`src/GuessMyAnswer.jsx` is self-contained — one default export, no required
-props, no storage. It can be pasted straight into a Claude conversation as an
-artifact. The judge call tries the same-origin `/api/judge` proxy first (this
-server) and falls back to calling the Anthropic API directly (which is how it
-works inside a Claude artifact), so the same file runs in both places.
+The app imports its matching engine from `src/matching.js` so the server can
+run identical code when refereeing a two-phone game. That is right for the
+deployed app and wrong for pasting into a Claude conversation, which wants
+exactly one file.
+
+```bash
+npm run artifact
+```
+
+writes `artifact/GuessMyAnswer.single.jsx` — engine inlined, React the only
+import, one default export, no required props, no storage. Paste that one.
+It is generated, so edit the sources and re-run rather than editing it.
+
+In an artifact there is no server, so the room mode has nothing to talk to and
+the two-phone buttons will not connect — the pass-one-phone game works fully.
+The judge tries the same-origin `/api/judge` proxy first and falls back to
+calling the Anthropic API directly, which is how it works in an artifact.

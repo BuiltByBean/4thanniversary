@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useRef, useMemo } from "react";
+import { evaluateBoth } from "./matching.js";
 
 /* ==================================================================== *
  *  GUESS MY ANSWER — The Fourth Anniversary Edition
@@ -7,8 +8,6 @@ import React, { useState, useEffect, useRef, useMemo } from "react";
  *  EVERYTHING WORTH EDITING LIVES IN THIS BLOCK.
  *  (It is all editable from inside the app too: "Edit the questions".)
  * ==================================================================== */
-
-const JUDGE_MODEL = "claude-sonnet-4-6";
 
 const OCCASION = {
   kicker: "The Fourth Anniversary Edition",
@@ -73,174 +72,20 @@ const SERIF = "Georgia, 'Iowan Old Style', 'Palatino Linotype', 'Times New Roman
 const SANS = "'Helvetica Neue', Helvetica, 'Segoe UI', Arial, sans-serif";
 
 /* ==================================================================== *
- *  THE MATCHING ENGINE
- *    Tier 1 — normalize + exact compare
- *    Tier 2 — Dice coefficient on token sets + negation flags
- *    Tier 3 — Claude as judge (falls back to Dice >= 0.4, "Judged offline.")
+ *  REACHING THE JUDGE FROM THE BROWSER
+ *
+ *  The matching engine itself lives in ./matching.js so the server can run
+ *  byte-identical code in room mode. All this adds is how the browser gets to
+ *  the judge: the same-origin proxy first (deployed), then the API directly
+ *  (which is how it works pasted into a Claude artifact).
  * ==================================================================== */
 
-const CONTRACTIONS = [
-  [/\bcan't\b/g, "can not"],
-  [/\bwon't\b/g, "will not"],
-  [/\bshan't\b/g, "shall not"],
-  [/\bain't\b/g, "is not"],
-  [/\bi'm\b/g, "i am"],
-  [/\blet's\b/g, "let us"],
-  [/\bit's\b/g, "it is"],
-  [/\bthat's\b/g, "that is"],
-  [/\bhe's\b/g, "he is"],
-  [/\bshe's\b/g, "she is"],
-  [/\bwhat's\b/g, "what is"],
-  [/\bthere's\b/g, "there is"],
-  [/\bwho's\b/g, "who is"],
-  [/n't\b/g, " not"],
-  [/\b(\w+)'re\b/g, "$1 are"],
-  [/\b(\w+)'ve\b/g, "$1 have"],
-  [/\b(\w+)'ll\b/g, "$1 will"],
-  [/\b(\w+)'d\b/g, "$1 would"],
-  [/\bgonna\b/g, "going to"],
-  [/\bwanna\b/g, "want to"],
-  [/\bkinda\b/g, "kind of"],
-];
-
-const FILLER_RE =
-  /^(i think |i would say |i would guess |probably |definitely |it would be |it is |that would be |maybe |honestly |obviously |well |just |i guess |guessing )+/;
-
-const STOPWORDS = new Set([
-  "the", "a", "an", "my", "your", "our", "is", "are", "up", "out", "on", "in",
-  "at", "to", "of", "and", "or", "that", "this", "it", "when", "always", "never",
-  // Negation words such as "not" are deliberately NOT in here — they stay as
-  // tokens. "never" is dropped as a token but still trips the tier-2 flag.
-]);
-
-const NEGATION_RE =
-  /(\bnot\b|\bnever\b|\bno\b|\bnone\b|\bnothing\b|\bwithout\b|\b(fail|fails|failing|forget|forgets|forgetting|refuse|refuses|neglect|neglects|avoid|avoids)\s+to\b)/;
-
-function expandContractions(s) {
-  let out = s.replace(/[‘’ʼ`]/g, "'");
-  for (let i = 0; i < CONTRACTIONS.length; i += 1) {
-    out = out.replace(CONTRACTIONS[i][0], CONTRACTIONS[i][1]);
-  }
-  return out;
-}
-
-function stemWord(w) {
-  if (w.length <= 3) return w;
-  if (/(ss|us|is|ous)$/.test(w)) return w;
-  if (/ies$/.test(w) && w.length > 4) return w.slice(0, -3) + "i";
-  if (/ing$/.test(w) && w.length > 5) return w.slice(0, -3);
-  if (/ed$/.test(w) && w.length > 4) return w.slice(0, -2);
-  if (/es$/.test(w) && w.length > 4) return w.slice(0, -2);
-  if (/s$/.test(w) && w.length > 3) return w.slice(0, -1);
-  return w;
-}
-
-/** Lowercase, de-contract, de-filler, de-punctuate, de-stopword, light stem. */
-function normalize(text) {
-  let s = String(text == null ? "" : text).toLowerCase().trim();
-  s = expandContractions(s);
-  s = s.replace(FILLER_RE, "");
-  s = s.replace(/[^a-z0-9\s]/g, " ");
-  s = s.replace(/\s+/g, " ").trim();
-  s = s.replace(FILLER_RE, "");
-  const words = s.split(" ").filter(Boolean);
-  const kept = [];
-  for (let i = 0; i < words.length; i += 1) {
-    if (STOPWORDS.has(words[i])) continue;
-    kept.push(stemWord(words[i]));
-  }
-  return kept.join(" ");
-}
-
-function tokenSet(text) {
-  const n = normalize(text);
-  return new Set(n ? n.split(" ") : []);
-}
-
-/** 2 * |A n B| / (|A| + |B|) */
-function diceCoefficient(a, b) {
-  if (!a.size || !b.size) return 0;
-  let shared = 0;
-  a.forEach((t) => {
-    if (b.has(t)) shared += 1;
-  });
-  return (2 * shared) / (a.size + b.size);
-}
-
-function hasNegation(text) {
-  const s = expandContractions(String(text == null ? "" : text).toLowerCase())
-    .replace(/[^a-z0-9\s]/g, " ")
-    .replace(/\s+/g, " ");
-  return NEGATION_RE.test(s);
-}
-
-const WORD_NUMBERS = {
-  zero: 0, one: 1, two: 2, three: 3, four: 4, five: 5, six: 6, seven: 7,
-  eight: 8, nine: 9, ten: 10, eleven: 11, twelve: 12, thirteen: 13,
-  fourteen: 14, fifteen: 15, sixteen: 16, seventeen: 17, eighteen: 18,
-  nineteen: 19, twenty: 20, thirty: 30, forty: 40, fifty: 50, sixty: 60,
-  seventy: 70, eighty: 80, ninety: 90, hundred: 100,
-  half: 0.5, couple: 2, few: 3, several: 4, dozen: 12,
-};
-
-function parseNumber(text) {
-  const t = String(text == null ? "" : text).toLowerCase().replace(/,/g, "");
-  const found = t.match(/\d+(?:\.\d+)?/g);
-  if (found && found.length) {
-    const vals = found.map(Number).filter((n) => isFinite(n));
-    if (!vals.length) return null;
-    const isRange = /\d+(?:\.\d+)?\s*(?:-|–|—|to|or)\s*\d+(?:\.\d+)?/.test(t);
-    if (isRange && vals.length >= 2) return (vals[0] + vals[1]) / 2;
-    return vals[0];
-  }
-  const keys = Object.keys(WORD_NUMBERS);
-  for (let i = 0; i < keys.length; i += 1) {
-    if (new RegExp("\\b" + keys[i] + "\\b").test(t)) return WORD_NUMBERS[keys[i]];
-  }
-  return null;
-}
-
-function tidyNumber(n) {
-  return n === Math.round(n) ? String(n) : String(Math.round(n * 10) / 10);
-}
-
-function buildJudgePrompt(questionText, answerName, answerText, guessName, guessText) {
-  return [
-    "You are the judge in a two-player guessing game. One player wrote a real answer;",
-    "the other tried to predict it. Decide whether the two express substantially the same idea.",
-    "",
-    "Question: " + questionText,
-    "",
-    answerName + " actually answered: " + answerText,
-    guessName + " guessed " + answerName + " would say: " + guessText,
-    "",
-    "How to judge:",
-    "- Be generous about phrasing, wording, tense, length and spelling.",
-    "- Be strict about actual meaning.",
-    "- Opposite framings of the SAME behaviour are a MATCH.",
-    "  Example: \"doesn't hang the towel up\" and \"leaves the towel out\" are a match.",
-    "- Different subjects are NOT a match.",
-    "  Example: \"the towel\" and \"the dishes\" are not a match.",
-    "- A vaguer guess that clearly points at the same thing is a match.",
-    "- A guess naming a different person, object, place, event or number is not a match.",
-    "",
-    "Reply with JSON only. No preamble, no markdown fences, no text outside the JSON.",
-    "{ \"match\": true, \"reason\": \"one short sentence, 15 words or fewer\" }",
-  ].join("\n");
-}
-
-/**
- * Two ways to reach the judge, so one file works in both homes:
- *   1. Same-origin /api/judge — the deployed server holds the API key.
- *   2. Straight to the API — inside a Claude artifact the key is handled.
- * Whichever answers first wins; if neither does, the caller falls back offline.
- */
-async function askJudge(payload) {
+async function sendToJudgeFromBrowser(body) {
   try {
     const proxied = await fetch("/api/judge", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(payload),
+      body: JSON.stringify(body),
     });
     if (proxied.ok) return await proxied.json();
   } catch (err) {
@@ -249,114 +94,12 @@ async function askJudge(payload) {
   const response = await fetch("https://api.anthropic.com/v1/messages", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify(payload),
+    body: JSON.stringify(body),
   });
   if (!response.ok) throw new Error("Judge responded " + response.status);
   return await response.json();
 }
 
-async function judgeWithClaude(questionText, answerName, answerText, guessName, guessText) {
-  const prompt = buildJudgePrompt(questionText, answerName, answerText, guessName, guessText);
-  const data = await askJudge({
-    model: JUDGE_MODEL,
-    max_tokens: 1000,
-    messages: [{ role: "user", content: prompt }],
-  });
-  let raw = "";
-  if (data && Object.prototype.toString.call(data.content) === "[object Array]") {
-    raw = data.content.map((b) => (b && b.text ? b.text : "")).join("");
-  }
-  const cleaned = String(raw).replace(/```json/gi, "").replace(/`/g, "").trim();
-  const first = cleaned.indexOf("{");
-  const last = cleaned.lastIndexOf("}");
-  if (first === -1 || last === -1) throw new Error("No JSON in judge reply");
-  const parsed = JSON.parse(cleaned.slice(first, last + 1));
-  if (typeof parsed.match !== "boolean") throw new Error("Judge gave no verdict");
-  const reason =
-    typeof parsed.reason === "string" && parsed.reason.trim()
-      ? parsed.reason.trim()
-      : "The judge did not explain.";
-  return { match: parsed.match, reason: reason };
-}
-
-/**
- * Score one pair. `answerText` is the truth, `guessText` is the prediction.
- * Returns { match, reason, tier, dice }.
- */
-async function evaluatePair(question, answerName, answerText, guessName, guessText) {
-  const a = String(answerText || "").trim();
-  const g = String(guessText || "").trim();
-
-  if (!a || !g) {
-    return { match: false, reason: "Nothing written down.", tier: "empty", dice: 0 };
-  }
-
-  // Numeric questions are scored by closeness, not by meaning.
-  if (question.mode === "numeric") {
-    const truth = parseNumber(a);
-    const guess = parseNumber(g);
-    if (truth !== null && guess !== null) {
-      const tolerance = Math.abs(truth) * 0.25;
-      const match = Math.abs(guess - truth) <= tolerance + 1e-9;
-      return {
-        match: match,
-        reason:
-          "Guessed " + tidyNumber(guess) + ", actual " + tidyNumber(truth) +
-          " — " + (match ? "inside" : "outside") + " the 25% window.",
-        tier: "numeric",
-        dice: 0,
-      };
-    }
-    // No number on one side: fall through to the language tiers.
-  }
-
-  // Negation is read up front. The stopword list drops "never" as a token, so
-  // "he never apologizes first" and "he apologizes first" normalize to the same
-  // string — without this guard tier 1 would call that a match.
-  const negA = hasNegation(a);
-  const negG = hasNegation(g);
-
-  // Tier 1 — normalized exact compare.
-  const na = normalize(a);
-  const ng = normalize(g);
-  if (na && ng && na === ng && negA === negG) {
-    return {
-      match: true,
-      reason: "The same answer once the wording is stripped away.",
-      tier: "exact",
-      dice: 1,
-    };
-  }
-
-  // Tier 2 — token overlap plus negation agreement.
-  const ta = tokenSet(a);
-  const tg = tokenSet(g);
-  const d = diceCoefficient(ta, tg);
-  const shown = d.toFixed(2);
-
-  if (d >= 0.6 && negA === negG) {
-    return { match: true, reason: "Nearly the same words (overlap " + shown + ").", tier: "overlap", dice: d };
-  }
-  if (d <= 0.15) {
-    return { match: false, reason: "Almost nothing in common (overlap " + shown + ").", tier: "overlap", dice: d };
-  }
-
-  // Tier 3 — Claude reads both and decides.
-  try {
-    const verdict = await judgeWithClaude(question.text, answerName, a, guessName, g);
-    return { match: verdict.match, reason: verdict.reason, tier: "judge", dice: d };
-  } catch (err) {
-    return { match: d >= 0.4, reason: "Judged offline.", tier: "offline", dice: d };
-  }
-}
-
-/* ==================================================================== *
- *  SMALL PIECES
- * ==================================================================== */
-
-/* Mobile first, and mobile strictly: this gets played on a phone that is
-   handed across a table. The floor is a 375px-wide screen — nothing may
-   scroll sideways, nothing may escape its card, every tap target is 44px. */
 const STYLE_SHEET = [
   ":root { --gmaVh: 100vh; --gmaSafeTop: env(safe-area-inset-top, 0px);",
   "  --gmaSafeBottom: env(safe-area-inset-bottom, 0px);",
@@ -530,9 +273,17 @@ function Tally({ value }) {
       const eased = 1 - Math.pow(1 - t, 3);
       setShown(Math.round(start + (value - start) * eased));
       if (t < 1) raf = requestAnimationFrame(step);
+      else setShown(value);
     };
     raf = requestAnimationFrame(step);
-    return () => cancelAnimationFrame(raf);
+    // A locked or backgrounded phone stops running animation frames entirely,
+    // which would leave the score frozen on the old number. Timers still fire,
+    // so this lands the real value whether or not the animation ever ran.
+    const guard = setTimeout(() => setShown(value), duration + 60);
+    return () => {
+      cancelAnimationFrame(raf);
+      clearTimeout(guard);
+    };
   }, [value]);
   return <span>{shown}</span>;
 }
@@ -595,26 +346,50 @@ function freshId(prefix) {
 }
 
 export default function GuessMyAnswer() {
-  const [names, setNames] = useState(DEFAULT_NAMES);
-  const [rounds, setRounds] = useState(DEFAULT_ROUNDS);
-  const [questions, setQuestions] = useState(DEFAULT_QUESTIONS);
-  const [rules, setRules] = useState(DEFAULT_RULES);
-  const [closing, setClosing] = useState(DEFAULT_CLOSING);
+  // Solo state. In room mode the server owns the equivalents and these become
+  // the host's editing scratchpad, pushed up as config.
+  const [soloNames, setNames] = useState(DEFAULT_NAMES);
+  const [soloRounds, setRounds] = useState(DEFAULT_ROUNDS);
+  const [soloQuestions, setQuestions] = useState(DEFAULT_QUESTIONS);
+  const [soloRules, setRules] = useState(DEFAULT_RULES);
+  const [soloClosing, setClosing] = useState(DEFAULT_CLOSING);
+
+  // Two phones, one game. creds identify this seat; room is the latest view
+  // the server sent us, already redacted for whichever seat we are.
+  const [mode, setMode] = useState("solo");
+  const [creds, setCreds] = useState(null);
+  const [room, setRoom] = useState(null);
+  const [roomError, setRoomError] = useState("");
+  const [joinCode, setJoinCode] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [introFor, setIntroFor] = useState(null);
+  const introShown = useRef(new Set());
 
   const [screen, setScreen] = useState("title");
   const [returnScreen, setReturnScreen] = useState("title");
-  const [qIndex, setQIndex] = useState(0);
+  const [soloQIndex, setQIndex] = useState(0);
   const [turn, setTurn] = useState(0);
   const [pending, setPending] = useState([null, null]);
   const [draft, setDraft] = useState({ answer: "", guess: "" });
   const [masked, setMasked] = useState({ answer: true, guess: true });
-  const [records, setRecords] = useState([]);
-  const [judging, setJudging] = useState(false);
+  const [soloRecords, setRecords] = useState([]);
+  const [soloJudging, setJudging] = useState(false);
   const [confirmReset, setConfirmReset] = useState(false);
 
   const judgeToken = useRef(0);
   const answerRef = useRef(null);
   const guessRef = useRef(null);
+
+  const inRoom = mode === "room" && Boolean(room);
+  const names = inRoom ? room.names : soloNames;
+  const rounds = inRoom ? room.rounds : soloRounds;
+  const questions = inRoom ? room.questions : soloQuestions;
+  const rules = inRoom ? room.rules : soloRules;
+  const closing = inRoom ? room.closing : soloClosing;
+  const qIndex = inRoom ? room.qIndex : soloQIndex;
+  const records = inRoom ? room.records : soloRecords;
+  const mySeat = inRoom ? room.seat : 0;
+  const judging = inRoom ? room.phase === "judging" : soloJudging;
 
   // Play order: rounds in order, then the questions inside each round.
   const playList = useMemo(() => {
@@ -636,19 +411,113 @@ export default function GuessMyAnswer() {
 
   const effective = (v) => (v ? (v.flipped ? !v.match : v.match) : false);
 
-  const scores = useMemo(() => {
+  const localScores = useMemo(() => {
     let a = 0;
     let b = 0;
-    records.forEach((rec) => {
+    soloRecords.forEach((rec) => {
       if (!rec) return;
       if (effective(rec.vB)) a += 1; // player one read player two correctly
       if (effective(rec.vA)) b += 1; // player two read player one correctly
     });
     return [a, b];
-  }, [records]);
+  }, [soloRecords]);
+  const scores = inRoom ? room.scores : localScores;
 
   const record = records[qIndex] || null;
   const partnerOf = (i) => names[i === 0 ? 1 : 0];
+  const turnSeat = inRoom ? mySeat : turn;
+
+  /* ---------------- two phones ---------------- */
+
+  const roomFetch = async (path, options) => {
+    const res = await fetch(path, options);
+    const data = await res.json().catch(() => null);
+    if (!res.ok) throw new Error((data && data.error) || "request_failed");
+    return data;
+  };
+
+  const configPayload = () => ({
+    names: soloNames,
+    rounds: soloRounds,
+    questions: soloQuestions,
+    rules: soloRules,
+    closing: soloClosing,
+  });
+
+  const hostRoom = async () => {
+    setBusy(true);
+    setRoomError("");
+    try {
+      const made = await roomFetch("/api/room", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(configPayload()),
+      });
+      introShown.current = new Set();
+      clearDraft(false);
+      setCreds(made);
+      setMode("room");
+      setScreen("lobby");
+    } catch (err) {
+      setRoomError("Could not open a room. Is the game online?");
+    }
+    setBusy(false);
+  };
+
+  const enterRoom = async () => {
+    const code = joinCode.trim().toUpperCase();
+    if (code.length !== 4) {
+      setRoomError("Room codes are four characters.");
+      return;
+    }
+    setBusy(true);
+    setRoomError("");
+    try {
+      const got = await roomFetch("/api/room/" + code + "/join", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: "{}",
+      });
+      introShown.current = new Set();
+      clearDraft(false);
+      setCreds(got);
+      setMode("room");
+      setScreen("lobby");
+    } catch (err) {
+      const why = err && err.message;
+      setRoomError(
+        why === "room_full" ? "That room already has two players."
+          : why === "no_such_room" ? "No room with that code."
+          : "Could not join. Check the code and try again."
+      );
+    }
+    setBusy(false);
+  };
+
+  const roomAction = async (path, body) => {
+    if (!creds) return;
+    try {
+      const next = await roomFetch("/api/room/" + creds.code + path, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(Object.assign({ token: creds.token }, body || {})),
+      });
+      setRoom(next);
+    } catch (err) {
+      // Whatever went wrong, the next poll reconciles us with the server.
+    }
+  };
+
+  const leaveRoom = () => {
+    setCreds(null);
+    setRoom(null);
+    setMode("solo");
+    setRoomError("");
+    setJoinCode("");
+    introShown.current = new Set();
+    setIntroFor(null);
+    setScreen("title");
+  };
 
   /* ---------------- flow ---------------- */
 
@@ -659,9 +528,10 @@ export default function GuessMyAnswer() {
     return !prev || !now || prev.round !== now.round;
   };
 
-  const clearDraft = () => {
+  const clearDraft = (hidden) => {
     setDraft({ answer: "", guess: "" });
-    setMasked({ answer: true, guess: true });
+    const hide = hidden === undefined ? !inRoom : hidden;
+    setMasked({ answer: hide, guess: hide });
   };
 
   const beginGame = () => {
@@ -702,18 +572,12 @@ export default function GuessMyAnswer() {
       return next;
     });
 
-    let vA = null;
-    let vB = null;
+    let verdicts;
     try {
-      const both = await Promise.all([
-        evaluatePair(q, names[0], entries[0].answer, names[1], entries[1].guess),
-        evaluatePair(q, names[1], entries[1].answer, names[0], entries[0].guess),
-      ]);
-      vA = both[0];
-      vB = both[1];
+      verdicts = await evaluateBoth(q, names, entries, sendToJudgeFromBrowser);
     } catch (err) {
-      vA = { match: false, reason: "Judged offline.", tier: "offline", dice: 0 };
-      vB = { match: false, reason: "Judged offline.", tier: "offline", dice: 0 };
+      const offline = { match: false, reason: "Judged offline.", tier: "offline", dice: 0, flipped: false };
+      verdicts = { vA: { ...offline }, vB: { ...offline } };
     }
 
     if (token !== judgeToken.current) return;
@@ -721,10 +585,7 @@ export default function GuessMyAnswer() {
       const next = prev.slice();
       const base = next[index];
       if (!base) return prev;
-      next[index] = Object.assign({}, base, {
-        vA: Object.assign({ flipped: false }, vA),
-        vB: Object.assign({ flipped: false }, vB),
-      });
+      next[index] = Object.assign({}, base, { vA: verdicts.vA, vB: verdicts.vB });
       return next;
     });
     setJudging(false);
@@ -735,6 +596,11 @@ export default function GuessMyAnswer() {
   const submitTurn = () => {
     if (!canSubmit) return;
     const entry = { answer: draft.answer.trim(), guess: draft.guess.trim() };
+    if (inRoom) {
+      roomAction("/submit", entry);
+      clearDraft();
+      return;
+    }
     if (turn === 0) {
       setPending([entry, null]);
       clearDraft();
@@ -755,7 +621,11 @@ export default function GuessMyAnswer() {
   };
 
   const nextQuestion = () => {
-    const i = qIndex + 1;
+    if (inRoom) {
+      roomAction("/next");
+      return;
+    }
+    const i = soloQIndex + 1;
     if (i >= total) {
       setScreen("final");
       return;
@@ -768,6 +638,12 @@ export default function GuessMyAnswer() {
   };
 
   const playAgain = () => {
+    if (inRoom) {
+      introShown.current = new Set();
+      setIntroFor(null);
+      roomAction("/again");
+      return;
+    }
     setRecords([]);
     setQIndex(0);
     setTurn(0);
@@ -778,6 +654,10 @@ export default function GuessMyAnswer() {
   };
 
   const flip = (which) => {
+    if (inRoom) {
+      roomAction("/override", { which: which });
+      return;
+    }
     setRecords((prev) => {
       const next = prev.slice();
       const rec = next[qIndex];
@@ -797,11 +677,65 @@ export default function GuessMyAnswer() {
 
   const closeEditor = () => {
     setConfirmReset(false);
+    if (inRoom) {
+      // The host edited the book; the room is the source of truth from here.
+      roomAction("/config", configPayload());
+      setScreen("lobby");
+      return;
+    }
     setQIndex((i) => Math.max(0, Math.min(i, Math.max(0, playList.length - 1))));
     setScreen(returnScreen);
   };
 
+  let active = screen;
+  if (inRoom && screen !== "editor") {
+    if (room.phase === "lobby") active = "lobby";
+    else if (introFor !== null) active = "roundIntro";
+    else if (room.phase === "answering") active = room.submitted[mySeat] ? "waiting" : "question";
+    else if (room.phase === "judging" || room.phase === "reveal") active = "reveal";
+    else if (room.phase === "final") active = "final";
+  }
+
   /* ---------------- timers & keyboard ---------------- */
+
+  // Short polling, deliberately. A phone that locks its screen kills a socket
+  // or an event stream and needs reconnect logic; a poll just resumes.
+  useEffect(() => {
+    if (!creds) return undefined;
+    let alive = true;
+    const tick = async () => {
+      try {
+        const res = await fetch("/api/room/" + creds.code + "?token=" + creds.token);
+        if (!res.ok) return;
+        const data = await res.json();
+        if (alive) setRoom(data);
+      } catch (err) {
+        // Lost signal. The next tick picks it back up.
+      }
+    };
+    tick();
+    const id = setInterval(tick, 1200);
+    return () => {
+      alive = false;
+      clearInterval(id);
+    };
+  }, [creds]);
+
+  // Both phones show the round card at the same moment.
+  const roomPhase = room ? room.phase : null;
+  const roomQIndex = room ? room.qIndex : null;
+  useEffect(() => {
+    if (!inRoom || roomPhase !== "answering") return undefined;
+    if (introShown.current.has(roomQIndex)) return undefined;
+    introShown.current.add(roomQIndex);
+    const prev = playList[roomQIndex - 1];
+    const now = playList[roomQIndex];
+    const fresh = roomQIndex === 0 || (prev && now && prev.round !== now.round);
+    if (!fresh) return undefined;
+    setIntroFor(roomQIndex);
+    const t = setTimeout(() => setIntroFor(null), 2100);
+    return () => clearTimeout(t);
+  }, [inRoom, roomPhase, roomQIndex]);
 
   useEffect(() => {
     if (screen !== "roundIntro") return undefined;
@@ -810,22 +744,22 @@ export default function GuessMyAnswer() {
   }, [screen, qIndex]);
 
   useEffect(() => {
-    if (screen !== "question") return undefined;
+    if (screen !== "question" && !(inRoom && roomPhase === "answering")) return undefined;
     const t = setTimeout(() => {
       if (answerRef.current) answerRef.current.focus();
     }, 80);
     return () => clearTimeout(t);
-  }, [screen, turn, qIndex]);
+  }, [screen, turn, qIndex, inRoom, roomPhase]);
 
   useEffect(() => {
     const onKey = (e) => {
       if (e.key !== "Enter") return;
       const tag = e.target && e.target.tagName ? e.target.tagName.toLowerCase() : "";
       if (tag === "input" || tag === "textarea" || tag === "select") return;
-      if (screen === "rules") startRoundOne();
-      else if (screen === "roundIntro") setScreen("question");
-      else if (screen === "handoff") takeSecondTurn();
-      else if (screen === "reveal" && !judging) nextQuestion();
+      if (active === "rules") startRoundOne();
+      else if (active === "roundIntro" && !inRoom) setScreen("question");
+      else if (active === "handoff") takeSecondTurn();
+      else if (active === "reveal" && !judging) nextQuestion();
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
@@ -934,7 +868,7 @@ export default function GuessMyAnswer() {
 
         <div className="gmaFade mt-8" style={{ animationDelay: "1s" }}>
           <Button onClick={beginGame} disabled={!total}>
-            Begin
+            Begin on this phone
           </Button>
           {total ? null : (
             <p className="mt-3" style={{ fontFamily: SERIF, fontSize: "0.85rem", color: C.rose }}>
@@ -942,6 +876,58 @@ export default function GuessMyAnswer() {
             </p>
           )}
           <div className="mt-4">
+            <Button tone="ghost" onClick={hostRoom} disabled={!total || busy}>
+              {busy ? "Opening…" : "Play on two phones"}
+            </Button>
+          </div>
+
+          <Heart className="mt-8" />
+
+          <div className="mt-8 text-left">
+            <Label className="mb-2">Joining a room?</Label>
+            <div className="flex gap-2">
+              <input
+                type="text"
+                value={joinCode}
+                placeholder="CODE"
+                maxLength={4}
+                autoCapitalize="characters"
+                autoCorrect="off"
+                spellCheck={false}
+                onChange={(e) => {
+                  setRoomError("");
+                  setJoinCode(e.target.value.toUpperCase().replace(/[^A-Z0-9]/g, ""));
+                }}
+                onKeyDown={(e) => {
+                  if (e.key === "Enter") {
+                    e.preventDefault();
+                    enterRoom();
+                  }
+                }}
+                className="gmaField w-full rounded-sm px-3 py-3 text-center"
+                style={{
+                  fontFamily: SERIF,
+                  letterSpacing: "0.4em",
+                  color: C.ink,
+                  backgroundColor: C.bg,
+                  border: "1px solid " + C.rule,
+                }}
+              />
+              <div style={{ flex: "0 0 auto", width: "40%" }}>
+                <Button tone="ghost" onClick={enterRoom} disabled={busy || joinCode.length !== 4}>
+                  Join
+                </Button>
+              </div>
+            </div>
+          </div>
+
+          {roomError ? (
+            <p className="gmaWrap mt-4" style={{ fontFamily: SERIF, fontSize: "0.9rem", color: C.rose }}>
+              {roomError}
+            </p>
+          ) : null}
+
+          <div className="mt-6">
             <Button tone="quiet" onClick={openEditor}>
               Edit the questions
             </Button>
@@ -989,7 +975,7 @@ export default function GuessMyAnswer() {
     <div
       className="gmaTap flex w-full cursor-pointer items-center justify-center px-6"
       style={{ minHeight: "var(--gmaVh)" }}
-      onClick={() => setScreen("question")}
+      onClick={() => { if (!inRoom) setScreen("question"); }}
     >
       <div className="gmaFade w-full max-w-md text-center">
         <Hairline className="gmaDraw mx-auto w-16" />
@@ -1026,11 +1012,29 @@ export default function GuessMyAnswer() {
 
         <div className="mt-7 text-center">
           <div style={{ fontFamily: SERIF, fontStyle: "italic", fontSize: "1.35rem", color: C.rose }}>
-            {names[turn]}&#8217;s turn
+            {inRoom ? "Your" : names[turnSeat] + "’s"} turn
           </div>
-          <p className="mt-2" style={{ fontFamily: SERIF, fontSize: "0.9rem", lineHeight: 1.5, color: C.muted }}>
-            Keep the screen to yourself. Both boxes stay hidden as you type.
+          <p className="gmaWrap mt-2" style={{ fontFamily: SERIF, fontSize: "0.9rem", lineHeight: 1.5, color: C.muted }}>
+            {inRoom
+              ? partnerOf(mySeat) + " sees none of this until you have both locked in."
+              : "Keep the screen to yourself. Both boxes stay hidden as you type."}
           </p>
+          {inRoom && room.submitted[mySeat === 0 ? 1 : 0] ? (
+            <div className="gmaFade mt-4 flex items-center justify-center gap-2">
+              <span style={{ color: C.rose, fontSize: "0.7rem", lineHeight: 1 }}>&#9829;</span>
+              <span
+                style={{
+                  fontFamily: SANS,
+                  fontSize: "0.65rem",
+                  letterSpacing: "0.2em",
+                  textTransform: "uppercase",
+                  color: C.rose,
+                }}
+              >
+                {partnerOf(mySeat)} has locked in
+              </span>
+            </div>
+          ) : null}
         </div>
 
         <div className="mt-7 space-y-5">
@@ -1048,7 +1052,7 @@ export default function GuessMyAnswer() {
             }}
           />
           <Field
-            label={"What will " + partnerOf(turn) + " say?"}
+            label={"What will " + partnerOf(turnSeat) + " say?"}
             fieldName="gma-two"
             value={draft.guess}
             masked={masked.guess}
@@ -1379,7 +1383,7 @@ export default function GuessMyAnswer() {
     setRounds((prev) => prev.concat([{ id: freshId("r"), name: "Round " + (prev.length + 1), subtitle: "" }]));
 
   const removeRound = (id) => {
-    if (questions.some((q) => q.round === id)) return;
+    if (soloQuestions.some((q) => q.round === id)) return;
     setRounds((prev) => prev.filter((r) => r.id !== id));
   };
 
@@ -1428,7 +1432,7 @@ export default function GuessMyAnswer() {
         <div className="mt-7">
           <Label>The three rules</Label>
           <div className="mt-3 space-y-3">
-            {rules.map((rule, i) => (
+            {soloRules.map((rule, i) => (
               <div key={i} className="flex items-start gap-3">
                 <span style={{ fontFamily: SERIF, fontStyle: "italic", fontSize: "1.1rem", color: C.rose }}>
                   {i + 1}
@@ -1448,8 +1452,8 @@ export default function GuessMyAnswer() {
           </div>
         </div>
 
-        {rounds.map((round, ri) => {
-          const mine = questions.filter((q) => q.round === round.id);
+        {soloRounds.map((round, ri) => {
+          const mine = soloQuestions.filter((q) => q.round === round.id);
           return (
             <div key={round.id} className="mt-9">
               <Hairline />
@@ -1542,7 +1546,7 @@ export default function GuessMyAnswer() {
                           border: "1px solid " + C.rule,
                         }}
                       >
-                        {rounds.map((r) => (
+                        {soloRounds.map((r) => (
                           <option key={r.id} value={r.id}>
                             {r.name}
                           </option>
@@ -1580,7 +1584,7 @@ export default function GuessMyAnswer() {
           <div className="mt-3 space-y-3">
             <textarea
               rows={2}
-              value={closing.text}
+              value={soloClosing.text}
               onChange={(e) => {
                 const v = e.target.value;
                 setClosing((c) => Object.assign({}, c, { text: v }));
@@ -1590,7 +1594,7 @@ export default function GuessMyAnswer() {
             />
             <input
               type="text"
-              value={closing.note}
+              value={soloClosing.note}
               onChange={(e) => {
                 const v = e.target.value;
                 setClosing((c) => Object.assign({}, c, { note: v }));
@@ -1602,10 +1606,10 @@ export default function GuessMyAnswer() {
         </div>
 
         <div className="mt-9 space-y-4">
-          <Button onClick={closeEditor} disabled={!total}>
+          <Button onClick={closeEditor} disabled={!soloQuestions.length}>
             Done editing
           </Button>
-          {total ? null : (
+          {soloQuestions.length ? null : (
             <p className="text-center" style={{ fontFamily: SERIF, fontSize: "0.85rem", color: C.rose }}>
               Add at least one question before you go back.
             </p>
@@ -1628,18 +1632,121 @@ export default function GuessMyAnswer() {
     </Frame>
   );
 
+  const lobbyScreen = (
+    <Frame>
+      <div className="gmaFade text-center">
+        <Label>{mySeat === 0 ? "Your room is open" : "You are in"}</Label>
+        <div
+          className="mx-auto mt-7 rounded-sm px-4 py-6"
+          style={{ backgroundColor: C.panel, border: "1px solid " + C.rule }}
+        >
+          <Label>Room code</Label>
+          <div
+            className="mt-3"
+            style={{
+              fontFamily: SERIF,
+              fontSize: "3rem",
+              lineHeight: 1,
+              letterSpacing: "0.28em",
+              textIndent: "0.28em",
+              color: C.ink,
+            }}
+          >
+            {creds ? creds.code : ""}
+          </div>
+        </div>
+
+        <Heart className="mt-8" />
+
+        <p
+          className="gmaWrap mx-auto mt-8 max-w-sm"
+          style={{ fontFamily: SERIF, fontSize: "1.05rem", lineHeight: 1.6, color: C.ink }}
+        >
+          {mySeat === 0
+            ? "Read this code to " + names[1] + ". On their phone they type it under “Joining a room?” and the game starts by itself."
+            : "Waiting for the game to begin."}
+        </p>
+
+        <div className="mt-8 flex items-center justify-center gap-2">
+          <Spinner />
+          <span
+            style={{
+              fontFamily: SANS,
+              fontSize: "0.65rem",
+              letterSpacing: "0.2em",
+              textTransform: "uppercase",
+              color: C.muted,
+            }}
+          >
+            Waiting for {names[1]}
+          </span>
+        </div>
+
+        <div className="mt-10 space-y-4">
+          {mySeat === 0 ? (
+            <Button tone="ghost" onClick={openEditor}>
+              Edit the questions first
+            </Button>
+          ) : null}
+          <Button tone="quiet" onClick={leaveRoom}>
+            Leave the room
+          </Button>
+        </div>
+      </div>
+    </Frame>
+  );
+
+  const waitingScreen = (
+    <Frame>
+      {scoreboard}
+      <div className="gmaFade py-8 text-center">
+        <Label>Locked in</Label>
+        <h2
+          className="gmaWrap mt-6 text-4xl sm:text-5xl"
+          style={{ fontFamily: SERIF, fontStyle: "italic", lineHeight: 1.15, color: C.ink }}
+        >
+          Waiting for {partnerOf(mySeat)}
+        </h2>
+        <Heart className="mt-8" />
+        <p
+          className="gmaWrap mx-auto mt-8 max-w-sm"
+          style={{ fontFamily: SERIF, fontSize: "1rem", lineHeight: 1.6, color: C.muted }}
+        >
+          Yours is in and sealed. Nothing shows on either screen until you have
+          both written something down.
+        </p>
+        <div className="mt-8 flex items-center justify-center gap-2">
+          <Spinner />
+          <span
+            style={{
+              fontFamily: SANS,
+              fontSize: "0.65rem",
+              letterSpacing: "0.2em",
+              textTransform: "uppercase",
+              color: C.muted,
+            }}
+          >
+            {partnerOf(mySeat) + " is still writing"}
+          </span>
+        </div>
+      </div>
+    </Frame>
+  );
+
   /* ---------------- render ---------------- */
 
   let body = titleScreen;
-  if (screen === "rules") body = rulesScreen;
-  else if (screen === "roundIntro") body = roundIntroScreen;
-  else if (screen === "question") body = questionScreen;
-  else if (screen === "handoff") body = handoffScreen;
-  else if (screen === "reveal") body = revealScreen;
-  else if (screen === "final") body = finalScreen;
-  else if (screen === "editor") body = editorScreen;
+  if (active === "rules") body = rulesScreen;
+  else if (active === "roundIntro") body = roundIntroScreen;
+  else if (active === "question") body = questionScreen;
+  else if (active === "handoff") body = handoffScreen;
+  else if (active === "reveal") body = revealScreen;
+  else if (active === "final") body = finalScreen;
+  else if (active === "editor") body = editorScreen;
+  else if (active === "lobby") body = lobbyScreen;
+  else if (active === "waiting") body = waitingScreen;
 
-  if (screen === "roundIntro") {
+  if (active === "roundIntro") {
     return (
       <div className="gmaRoot w-full" style={{ backgroundColor: C.bg, color: C.ink, minHeight: "var(--gmaVh)" }}>
         <style>{STYLE_SHEET}</style>
@@ -1662,7 +1769,7 @@ export default function GuessMyAnswer() {
     >
       <style>{STYLE_SHEET}</style>
       <div className="mx-auto w-full max-w-md">
-        <div key={screen + "-" + qIndex + "-" + turn}>{body}</div>
+        <div key={active + "-" + qIndex + "-" + turn}>{body}</div>
       </div>
     </div>
   );
