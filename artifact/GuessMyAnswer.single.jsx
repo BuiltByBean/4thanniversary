@@ -924,6 +924,7 @@ export default function GuessMyAnswer() {
   const [soloRecords, setRecords] = useState([]);
   const [soloJudging, setJudging] = useState(false);
   const [confirmReset, setConfirmReset] = useState(false);
+  const [secretOut, setSecretOut] = useState(false);
 
   const judgeToken = useRef(0);
   const [judgeReady, setJudgeReady] = useState(false);
@@ -1188,6 +1189,7 @@ export default function GuessMyAnswer() {
   };
 
   const playAgain = () => {
+    setSecretOut(false);
     if (inRoom) {
       introShown.current = new Set();
       setIntroFor(null);
@@ -1795,17 +1797,24 @@ export default function GuessMyAnswer() {
   const finalScreen = (() => {
     let headline;
     let warm;
+    let secret;
     if (scores[0] === scores[1]) {
       headline = "A dead tie.";
       warm =
         "Four years of paying attention, split straight down the middle. Nobody has to win this one.";
+      secret =
+        "A tie is the correct answer anyway. Four years each, both of you winning the whole time.";
     } else {
-      const winner = scores[0] > scores[1] ? names[0] : names[1];
-      const other = scores[0] > scores[1] ? names[1] : names[0];
+      const firstWon = scores[0] > scores[1];
+      const winner = firstWon ? names[0] : names[1];
+      const other = firstWon ? names[1] : names[0];
       headline = winner + " was paying closer attention.";
       warm =
         other +
         ", the ones you missed are the ones worth talking about tonight. That is the whole point of the game.";
+      secret = firstWon
+        ? "Actually, " + names[1] + " — you are the winner. You got to be married to me for four years."
+        : "But the real winner is " + names[0] + ", who got to be married to you for four years.";
     }
 
     return (
@@ -1846,6 +1855,30 @@ export default function GuessMyAnswer() {
           >
             {warm}
           </p>
+
+          {secretOut ? (
+            <div className="gmaFade mt-9">
+              <Heart />
+              <p
+                className="gmaWrap mx-auto mt-7 max-w-sm"
+                style={{
+                  fontFamily: SERIF,
+                  fontStyle: "italic",
+                  fontSize: "1.2rem",
+                  lineHeight: 1.6,
+                  color: C.rose,
+                }}
+              >
+                {secret}
+              </p>
+            </div>
+          ) : (
+            <div className="mt-9">
+              <Button tone="quiet" onClick={() => setSecretOut(true)}>
+                <span className="gmaPulse">&#9829;&nbsp; one more thing</span>
+              </Button>
+            </div>
+          )}
 
           <Heart className="mt-10" />
 

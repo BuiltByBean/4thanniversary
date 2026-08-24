@@ -89,6 +89,24 @@ Some notes on how it works, and what it does not do:
   is answered the set is locked so indices cannot shift underneath a game in
   progress.
 
+## Installing it on a phone
+
+It is a PWA, so it can live on the home screen with its own icon instead of
+inside a browser tab.
+
+- **iPhone:** open the site in Safari, Share, *Add to Home Screen*.
+- **Android:** Chrome offers *Install app*, or Menu, *Add to Home screen*.
+
+Once installed it opens without browser chrome (`display: standalone`), keeps
+the warm paper colour behind the status bar, and a small service worker caches
+the shell so it still opens in a dead spot. Room mode needs a signal; the
+one-phone game does not.
+
+The icon is `public/icon.svg` — H and M inside a rose heart, on the same cream
+card with the same double rule as the printed version. There is a maskable
+variant so Android can crop it to a circle without clipping, and a 180px PNG
+because Safari will not take an SVG for the home-screen icon.
+
 ## How answers get scored
 
 No API key needed. Everything below runs offline in the browser, in about a

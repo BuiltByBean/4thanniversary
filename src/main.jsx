@@ -8,3 +8,11 @@ createRoot(document.getElementById("root")).render(
     <GuessMyAnswer />
   </React.StrictMode>
 );
+
+// Installable, and playable in a dead spot. Registered after load so it never
+// competes with the first paint.
+if ("serviceWorker" in navigator) {
+  window.addEventListener("load", () => {
+    navigator.serviceWorker.register("/sw.js").catch(() => {});
+  });
+}

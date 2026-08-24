@@ -169,6 +169,19 @@ app.post("/api/room/:code/config", (req, res) => {
 /* ------------------------------------------------------------------ */
 
 const dist = path.join(__dirname, "dist");
+
+// The service worker must never be served from a stale cache, or a deploy
+// cannot replace the one already installed on a phone.
+app.get("/sw.js", (req, res) => {
+  res.set("Cache-Control", "no-cache, no-store, must-revalidate");
+  res.sendFile(path.join(dist, "sw.js"));
+});
+app.get("/manifest.webmanifest", (req, res) => {
+  res.set("Cache-Control", "no-cache");
+  res.type("application/manifest+json");
+  res.sendFile(path.join(dist, "manifest.webmanifest"));
+});
+
 app.use(express.static(dist, { index: false, maxAge: "1h" }));
 
 // Single page app: everything else gets index.html.
