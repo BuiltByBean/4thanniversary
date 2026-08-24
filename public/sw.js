@@ -1,11 +1,15 @@
 /* Guess My Answer — service worker.
  *
  * Enough to make the game installable and to survive a dead spot in the
- * signal. Deliberately small: there is no precache manifest to go stale,
- * because the built asset filenames are content-hashed by Vite anyway.
+ * signal. Deliberately narrow: only the content-hashed build assets are
+ * cached, because their filenames change whenever their contents do.
+ *
+ * Everything else — icons, the manifest, room state — goes to the network.
+ * An earlier version cached icons cache-first, which pinned a broken PNG on
+ * a phone and kept serving it after the fix had already shipped. Not again.
  */
 
-const CACHE = "gma-v1";
+const CACHE = "gma-v3";
 
 self.addEventListener("install", () => {
   self.skipWaiting();
@@ -50,19 +54,18 @@ self.addEventListener("fetch", (event) => {
     return;
   }
 
-  // Everything else (hashed assets, icons, manifest): serve from cache when
-  // we have it, and refresh in the background.
+  // Only the hashed build output is safe to serve from cache, since a change
+  // to any of it produces a new filename.
+  if (!url.pathname.startsWith("/assets/")) return;
+
   event.respondWith(
     (async () => {
       const cache = await caches.open(CACHE);
       const hit = await cache.match(request);
-      const network = fetch(request)
-        .then((res) => {
-          if (res && res.ok) cache.put(request, res.clone());
-          return res;
-        })
-        .catch(() => hit);
-      return hit || network;
+      if (hit) return hit;
+      const res = await fetch(request);
+      if (res && res.ok) cache.put(request, res.clone());
+      return res;
     })()
   );
 });

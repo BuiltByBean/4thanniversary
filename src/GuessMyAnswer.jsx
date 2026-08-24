@@ -27,27 +27,27 @@ const DEFAULT_RULES = [
 
 const DEFAULT_ROUNDS = [
   { id: "r1", name: "Round One", subtitle: "how well do you know me" },
-  { id: "r2", name: "Round Two", subtitle: "closer to the bone" },
-  { id: "r3", name: "Round Three", subtitle: "no wrong answers, only wrong guesses" },
+  { id: "r2", name: "Round Two", subtitle: "now it gets personal" },
+  { id: "r3", name: "Round Three", subtitle: "money, dreams and bad ideas" },
 ];
 
 // mode: "numeric" scores by closeness (within 25%) instead of by meaning.
 const DEFAULT_QUESTIONS = [
   { id: "q1", round: "r1", text: "Which thing I bought did you call a waste and now use more than I do?" },
-  { id: "q2", round: "r1", text: "How many hours a week do I really spend on the D&D app? Closest wins.", mode: "numeric" },
-  { id: "q3", round: "r1", text: "What is my tell when I am annoyed and pretending not to be?" },
-  { id: "q4", round: "r1", text: "Which of my side projects did you quietly think would flop?" },
-  { id: "q5", round: "r1", text: "Who apologizes first, and how long does it usually take?" },
-  { id: "q6", round: "r2", text: "What did you actually think of me the first time we met?" },
-  { id: "q7", round: "r2", text: "What was the hardest month of these four years, and why that one?" },
-  { id: "q8", round: "r2", text: "When were you last proud of me and did not say it out loud?" },
-  { id: "q9", round: "r2", text: "What do I do now that I did not do four years ago?" },
-  { id: "q10", round: "r2", text: "My most annoying habit. Be specific. “Everything” is not a point." },
-  { id: "q11", round: "r3", text: "If you could delete one of my hobbies, which one goes first?" },
-  { id: "q12", round: "r3", text: "Which horror movie actually kept you up? Do not say none." },
-  { id: "q13", round: "r3", text: "Who is better at bedtime with Kiya? Be honest." },
-  { id: "q14", round: "r3", text: "One free Saturday. No kid, no work, no house. What am I doing?" },
-  { id: "q15", round: "r3", text: "Where are we living in ten years?" },
+  { id: "q2", round: "r1", text: "What is my tell when I am annoyed and pretending not to be?" },
+  { id: "q3", round: "r1", text: "What is my go-to order when we get takeout?" },
+  { id: "q4", round: "r1", text: "What is the first thing I do when I walk in the door?" },
+  { id: "q5", round: "r1", text: "How many hours a day am I on my phone? Closest wins.", mode: "numeric" },
+  { id: "q6", round: "r2", text: "My most annoying habit. Be specific. “Everything” is not a point." },
+  { id: "q7", round: "r2", text: "If you could delete one of my hobbies, which one goes first?" },
+  { id: "q8", round: "r2", text: "What is the pettiest thing I have ever started an argument about?" },
+  { id: "q9", round: "r2", text: "Which piece of my clothing would you throw out tonight if you could?" },
+  { id: "q10", round: "r2", text: "What am I always late for?" },
+  { id: "q11", round: "r3", text: "Anywhere in the world, money is no object. Where am I taking you?" },
+  { id: "q12", round: "r3", text: "We win the lottery tomorrow. What do I buy first?" },
+  { id: "q13", round: "r3", text: "What song am I guaranteed to sing in the car?" },
+  { id: "q14", round: "r3", text: "What is my comfort meal after a genuinely terrible day?" },
+  { id: "q15", round: "r3", text: "The house is on fire and Kiya is already outside. What do I grab?" },
 ];
 
 const DEFAULT_CLOSING = {
