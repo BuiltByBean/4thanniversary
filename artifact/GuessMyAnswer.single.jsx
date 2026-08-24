@@ -591,10 +591,10 @@ const DEFAULT_QUESTIONS = [
   { id: "q7", round: "r2", text: "If you could delete one of my hobbies, which one goes first?" },
   { id: "q8", round: "r2", text: "What do I always say I am going to do and never actually do?" },
   { id: "q9", round: "r2", text: "Which piece of my clothing would you throw out tonight if you could?" },
-  { id: "q10", round: "r2", text: "Which of my opinions do you wish I would keep to myself?" },
+  { id: "q10", round: "r2", text: "What is my most overused phrase?" },
   { id: "q11", round: "r3", text: "Anywhere in the world, money is no object. Where am I taking you?" },
   { id: "q12", round: "r3", text: "We win the lottery tomorrow. What do I buy first?" },
-  { id: "q13", round: "r3", text: "What am I most likely to buy at one in the morning on my phone?" },
+  { id: "q13", round: "r3", text: "Dinner with anyone, alive or dead. Who am I picking?" },
   { id: "q14", round: "r3", text: "What is my comfort meal after a genuinely terrible day?" },
   { id: "q15", round: "r3", text: "The house is on fire and Kiya is already outside. What do I grab?" },
 ];
