@@ -382,7 +382,7 @@ const STYLE_SHEET = [
   ".gmaField:focus { outline: none; border-color: #A8453B; }",
   /* 16px minimum or iOS zooms the whole page on focus. min-width:0 or a
      native input refuses to shrink and puts itself through the card wall. */
-  ".gmaField { font-size: 16px; min-width: 0; max-width: 100%; }",
+  ".gmaField { font-size: 16px; min-width: 0; max-width: 100%; min-height: 44px; }",
   ".gmaTap { -webkit-tap-highlight-color: transparent; touch-action: manipulation;",
   "  min-height: 44px; }",
   ".gmaTapSmall { -webkit-tap-highlight-color: transparent; touch-action: manipulation;",
